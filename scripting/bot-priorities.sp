@@ -14,7 +14,7 @@ List of priorities:
 #include <sdktools>
 #include <bot-priorities>
 
-#define PLUGIN_VERSION "1.0.1"
+#define PLUGIN_VERSION "1.0.2"
 
 #define MAX_PRIORITES 256
 
@@ -41,8 +41,9 @@ enum struct Priorities
 	int classid; //The class ID used in conjunction with the entity to determine which survivor or infected to look for. Entity must be 'player' for this to be used.
 	int slot; //The slot to switch the bot to when the required distance is met.
 	char buttons[256]; //The buttons to press whenever the bot is within the required distance.
+	char script[512]; //A VScript to execute whenever the bot is within the required distance.
 
-	void Add(const char[] name, bool status, int team, const char[] entity, float trigger_distance, float required_distance, int classid, int slot, const char[] buttons)
+	void Add(const char[] name, bool status, int team, const char[] entity, float trigger_distance, float required_distance, int classid, int slot, const char[] buttons, const char[] script)
 	{
 		strcopy(this.name, sizeof(Priorities::name), name);
 		this.status = status;
@@ -53,6 +54,7 @@ enum struct Priorities
 		this.classid = classid;
 		this.slot = slot;
 		strcopy(this.buttons, sizeof(Priorities::buttons), buttons);
+		strcopy(this.script, sizeof(Priorities::script), script);
 	}
 }
 
@@ -221,6 +223,7 @@ void ParsePriorities(int client = -1)
 		int classid; //The class ID used in conjunction with the entity to determine which survivor or infected to look for.
 		int slot; //The slot to switch the bot to when the required distance is met.
 		char buttons[256]; //The buttons to press whenever the bot is within the required distance.
+		char script[512]; //A VScript to execute whenever the bot is within the required distance.
 
 		do
 		{
@@ -233,8 +236,9 @@ void ParsePriorities(int client = -1)
 			classid = kv.GetNum("classid", -1);
 			slot = kv.GetNum("slot", -1);
 			kv.GetString("buttons", buttons, sizeof(buttons), "");
+			kv.GetString("script", script, sizeof(script), "");
 
-			g_Priorities[g_TotalPriorities++].Add(name, status, team, entity, trigger_distance, required_distance, classid, slot, buttons);
+			g_Priorities[g_TotalPriorities++].Add(name, status, team, entity, trigger_distance, required_distance, classid, slot, buttons, script);
 		}
 		while (kv.GotoNextKey(false));
 	}
@@ -313,6 +317,9 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			if (StrContains(g_Priorities[prio].buttons, "IN_ATTACK2", false) != -1)
 				buttons |= IN_ATTACK2;
 		}
+
+		if (strlen(g_Priorities[prio].script) > 0)
+			ExecuteScript(client, "%s", g_Priorities[prio].script);
 
 		return Plugin_Continue;
 	}
