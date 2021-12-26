@@ -14,7 +14,7 @@ List of priorities:
 #include <sdktools>
 #include <bot-priorities>
 
-#define PLUGIN_VERSION "1.0.0"
+#define PLUGIN_VERSION "1.0.1"
 
 #define MAX_PRIORITES 256
 
@@ -172,6 +172,8 @@ public int MenuHandler_Priorities(Menu menu, MenuAction action, int param1, int 
 		case MenuAction_End:
 			delete menu;
 	}
+
+	return 0;
 }
 
 void SetPriorityConfigValue(int index, const char[] key, const char[] value)
@@ -273,7 +275,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 	if (g_CurrentPrio[client] != NO_PRIO)
 	{
 		int prio = g_CurrentPrio[client];
-		//int target = g_CurrentTarget[client];
+		int target = g_CurrentTarget[client];
 
 		//Priority was turned off while the bot had the priority currently.
 		if (!g_Priorities[prio].status)
@@ -283,7 +285,34 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			return Plugin_Continue;
 		}
 
-		
+		float entorigin[3];
+		GetEntPropVector(target, Prop_Send, "m_vecorigin", entorigin);
+
+		//If a required distance is set and we're not in the required distance, move the bot towards the target.
+		if (g_Priorities[prio].required_distance > 0.0 && GetVectorDistance(origin, entorigin) > g_Priorities[prio].required_distance)
+		{
+			ExecuteScript(client, "CommandABot({cmd=1,pos=Vector(%f,%f,%f),bot=GetPlayerFromUserID(%i)})", entorigin[0], entorigin[1], entorigin[2], GetClientUserId(client));
+			return Plugin_Continue;
+		}
+
+		if (g_Priorities[prio].slot != -1 && GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon") != GetPlayerWeaponSlot(client, g_Priorities[prio].slot))
+		{
+			int slotweapon = GetPlayerWeaponSlot(client, g_Priorities[prio].slot);
+
+			char class[32];
+			GetEdictClassname(slotweapon, class, sizeof(class));
+
+			FakeClientCommand(client, "use %s", class);
+		}
+
+		if (strlen(g_Priorities[prio].buttons) > 0)
+		{
+			if (StrContains(g_Priorities[prio].buttons, "IN_ATTACK", false) != -1)
+				buttons |= IN_ATTACK;
+			
+			if (StrContains(g_Priorities[prio].buttons, "IN_ATTACK2", false) != -1)
+				buttons |= IN_ATTACK2;
+		}
 
 		return Plugin_Continue;
 	}
