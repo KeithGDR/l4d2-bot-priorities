@@ -21,6 +21,9 @@ List of priorities:
 #define NO_PRIO -1
 #define NO_TARGET -1
 
+#define TEAM_SURVIVORS 2
+#define TEAM_INFECTED 3
+
 public Plugin myinfo = 
 {
 	name = "[L4D2] Bot Priorities", 
@@ -346,7 +349,21 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			//If the target is a player then we can check what their survivor ID or their infected ID is.
 			if (StrEqual(g_Priorities[i].entity, "player", false))
 			{
-				//TODO: Implement this.
+				switch (GetClientTeam(entity))
+				{
+					case TEAM_SURVIVORS:
+					{
+						if (GetEntProp(entity, Prop_Send, "m_survivorCharacter") != g_Priorities[i].classid)
+							continue;
+					}
+
+					case TEAM_INFECTED:
+					{
+						if (GetEntProp(entity, Prop_Send, "m_zombieClass") != g_Priorities[i].classid)
+							continue;
+					}
+				}
+
 				continue;
 			}
 
