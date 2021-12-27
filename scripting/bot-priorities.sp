@@ -20,6 +20,7 @@ List of priorities:
 
 #define NO_PRIO -1
 #define NO_TARGET -1
+#define NO_TIME -1.0
 
 #define TEAM_SURVIVORS 2
 #define TEAM_INFECTED 3
@@ -41,12 +42,16 @@ enum struct Priorities
 	char entity[64]; //The entity at which is targeted specifically.
 	float trigger_distance;	//Minimum distance at which is required to trigger this priority.
 	float required_distance; //The required distance for the bot to move towards the entity before the action takes place.
+	float movement_delay; //The delay at which movement commands are sent to the bot.
 	int classid; //The class ID used in conjunction with the entity to determine which survivor or infected to look for. Entity must be 'player' for this to be used.
 	int slot; //The slot to switch the bot to when the required distance is met.
 	char buttons[256]; //The buttons to press whenever the bot is within the required distance.
 	char script[512]; //A VScript to execute whenever the bot is within the required distance.
+	bool lookat; //Toggle on/off to look at the target manually whenever the bot is within the required distance.
+	char release_event[64]; //The event called whenever the bot should have their current priority released.
+	float release_seconds; //The time in seconds once the priority is found for the bot to forget about the priority automatically.
 
-	void Add(const char[] name, bool status, int team, const char[] entity, float trigger_distance, float required_distance, int classid, int slot, const char[] buttons, const char[] script)
+	void Add(const char[] name, bool status, int team, const char[] entity, float trigger_distance, float required_distance, float movement_delay, int classid, int slot, const char[] buttons, const char[] script, bool lookat, const char[] release_event, float release_seconds)
 	{
 		strcopy(this.name, sizeof(Priorities::name), name);
 		this.status = status;
@@ -54,10 +59,14 @@ enum struct Priorities
 		strcopy(this.entity, sizeof(Priorities::entity), entity);
 		this.trigger_distance = trigger_distance;
 		this.required_distance = required_distance;
+		this.movement_delay = movement_delay;
 		this.classid = classid;
 		this.slot = slot;
 		strcopy(this.buttons, sizeof(Priorities::buttons), buttons);
 		strcopy(this.script, sizeof(Priorities::script), script);
+		this.lookat = lookat;
+		strcopy(this.release_event, sizeof(Priorities::release_event), release_event);
+		this.release_seconds = release_seconds;
 	}
 }
 
@@ -69,6 +78,8 @@ GlobalForward g_Fw_ConfigReloaded;
 
 int g_CurrentPrio[MAXPLAYERS + 1] = {NO_PRIO, ...};
 int g_CurrentTarget[MAXPLAYERS + 1] = {NO_TARGET, ...};
+float g_MovementDelay[MAXPLAYERS + 1];
+float g_LastPrio[MAXPLAYERS + 1];
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
@@ -101,6 +112,10 @@ public void OnPluginStart()
 
 	RegAdminCmd("sm_reloadprios", Command_ReloadPrio, ADMFLAG_ROOT, "Reload all bot priorities from the config.");
 	RegAdminCmd("sm_prios", Command_Prios, ADMFLAG_ROOT, "List all available bot priorities and toggle them on or off.");
+
+	HookEvent("ability_use", Event_Release);
+	HookEvent("ammo_pickup", Event_Release);
+	HookEvent("item_pickup", Event_Release);
 	
 	ParsePriorities(-1);
 
@@ -109,7 +124,7 @@ public void OnPluginStart()
 
 public Action Command_C(int client, int args)
 {
-	int entity = GetClientAimTarget(client, true);
+	int entity = GetClientAimTarget(client, false);
 
 	if (entity < 1)
 	{
@@ -223,10 +238,14 @@ void ParsePriorities(int client = -1)
 		char entity[64]; //The entity at which is targeted specifically.
 		float trigger_distance;	//Minimum distance at which is required to trigger this priority.
 		float required_distance; //The required distance for the bot to move towards the entity before the action takes place.
+		float movement_delay; //The delay at which movement commands are sent to the bot.
 		int classid; //The class ID used in conjunction with the entity to determine which survivor or infected to look for.
 		int slot; //The slot to switch the bot to when the required distance is met.
 		char buttons[256]; //The buttons to press whenever the bot is within the required distance.
 		char script[512]; //A VScript to execute whenever the bot is within the required distance.
+		bool lookat; //Toggle on/off to look at the target manually whenever the bot is within the required distance.
+		char release_event[64]; //The event called whenever the bot should have their current priority released.
+		float release_seconds; //The time in seconds once the priority is found for the bot to forget about the priority automatically.
 
 		do
 		{
@@ -236,12 +255,16 @@ void ParsePriorities(int client = -1)
 			kv.GetString("entity", entity, sizeof(entity), "");
 			trigger_distance = kv.GetFloat("trigger_distance", -1.0);
 			required_distance = kv.GetFloat("required_distance", -1.0);
+			movement_delay = kv.GetFloat("movement_delay", 2.0);
 			classid = kv.GetNum("classid", -1);
 			slot = kv.GetNum("slot", -1);
 			kv.GetString("buttons", buttons, sizeof(buttons), "");
 			kv.GetString("script", script, sizeof(script), "");
+			lookat = view_as<bool>(kv.GetNum("lookat", 0));
+			kv.GetString("release_event", release_event, sizeof(release_event), "");
+			release_seconds = kv.GetFloat("release_seconds", -1.0);
 
-			g_Priorities[g_TotalPriorities++].Add(name, status, team, entity, trigger_distance, required_distance, classid, slot, buttons, script);
+			g_Priorities[g_TotalPriorities++].Add(name, status, team, entity, trigger_distance, required_distance, movement_delay, classid, slot, buttons, script, lookat, release_event, release_seconds);
 		}
 		while (kv.GotoNextKey(false));
 	}
@@ -277,6 +300,8 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 	
 	float origin[3];
 	GetClientAbsOrigin(client, origin);
+
+	float time = GetGameTime();
 	
 	//If this bot has a priority already, don't assign a new one until they've finished this priority.
 	if (g_CurrentPrio[client] != NO_PRIO)
@@ -287,17 +312,35 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 		//Priority was turned off while the bot had the priority currently.
 		if (!g_Priorities[prio].status)
 		{
-			g_CurrentPrio[client] = NO_PRIO;
-			g_CurrentTarget[client] = NO_TARGET;
+			ClearPrio(client);
+			return Plugin_Continue;
+		}
+
+		//A target is involved with this priority and the entity is no longer alive.
+		if (target != NO_TARGET && !IsValidEntity(target))
+		{
+			ClearPrio(client);
+			return Plugin_Continue;
+		}
+
+		//The priority has lated too long so we should time it out.
+		if (g_LastPrio[client] != NO_TIME && g_LastPrio[client] <= time)
+		{
+			ClearPrio(client);
 			return Plugin_Continue;
 		}
 
 		float entorigin[3];
-		GetEntPropVector(target, Prop_Send, "m_vecorigin", entorigin);
+		GetEntPropVector(target, Prop_Send, "m_vecOrigin", entorigin);
 
 		//If a required distance is set and we're not in the required distance, move the bot towards the target.
 		if (g_Priorities[prio].required_distance > 0.0 && GetVectorDistance(origin, entorigin) > g_Priorities[prio].required_distance)
 		{
+			if (g_MovementDelay[client] > time)
+				return Plugin_Continue;
+			
+			g_MovementDelay[client] = time + g_Priorities[prio].movement_delay;
+
 			ExecuteScript(client, "CommandABot({cmd=1,pos=Vector(%f,%f,%f),bot=GetPlayerFromUserID(%i)})", entorigin[0], entorigin[1], entorigin[2], GetClientUserId(client));
 			return Plugin_Continue;
 		}
@@ -312,6 +355,20 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			FakeClientCommand(client, "use %s", class);
 		}
 
+		if (g_Priorities[prio].lookat)
+		{
+			float EyePos[3];
+			GetClientEyePosition(client, EyePos);
+
+			float AimOnDeadSurvivor[3];
+			MakeVectorFromPoints(EyePos, entorigin, AimOnDeadSurvivor);
+
+			float AimAngles[3];
+			GetVectorAngles(AimOnDeadSurvivor, AimAngles);
+
+			TeleportEntity(client, NULL_VECTOR, AimAngles, NULL_VECTOR);
+		}
+
 		if (strlen(g_Priorities[prio].buttons) > 0)
 		{
 			if (StrContains(g_Priorities[prio].buttons, "IN_ATTACK", false) != -1)
@@ -319,6 +376,9 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			
 			if (StrContains(g_Priorities[prio].buttons, "IN_ATTACK2", false) != -1)
 				buttons |= IN_ATTACK2;
+			
+			if (StrContains(g_Priorities[prio].buttons, "IN_USE", false) != -1)
+				buttons |= IN_USE;
 		}
 
 		if (strlen(g_Priorities[prio].script) > 0)
@@ -367,7 +427,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 				continue;
 			}
 
-			GetEntPropVector(entity, Prop_Send, "m_vecorigin", entorigin);
+			GetEntPropVector(entity, Prop_Send, "m_vecOrigin", entorigin);
 
 			//A trigger distance is set, only target the nearest entity then with the distance in mind.
 			if (distance > 0.0 && GetVectorDistance(origin, entorigin) > distance)
@@ -376,6 +436,10 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			//All checks passed, give them this priority and assign the target.
 			g_CurrentPrio[client] = i;
 			g_CurrentTarget[client] = entity;
+
+			//Sets a timeout for this priority based on seconds of it being received.
+			if (g_Priorities[i].release_seconds != -1.0)
+				g_LastPrio[client] = time + g_Priorities[i].release_seconds;
 		}
 	}
 
@@ -391,4 +455,23 @@ stock void ExecuteScript(int client, const char[] script, any ...)
 	SetCommandFlags("script", flags ^ FCVAR_CHEAT);
 	FakeClientCommand(client, "script %s", vscript);
 	SetCommandFlags("script", flags | FCVAR_CHEAT);
+}
+
+public void Event_Release(Event event, const char[] name, bool dontBroadcast)
+{
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	int prio = g_CurrentPrio[client];
+
+	if (prio == NO_PRIO)
+		return;
+	
+	if (StrEqual(name, g_Priorities[prio].release_event, false))
+		ClearPrio(client);
+}
+
+void ClearPrio(int client)
+{
+	g_CurrentPrio[client] = NO_PRIO;
+	g_CurrentTarget[client] = NO_TARGET;
+	g_LastPrio[client] = NO_TIME;
 }
