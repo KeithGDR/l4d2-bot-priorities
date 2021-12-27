@@ -49,6 +49,24 @@ forward void BotPrio_ConfigLoaded();
 **/
 forward void BotPrio_ConfigReloaded(int client);
 
+/**
+	Called whenever a bot has found a priority.
+
+	client = Client Index of the bot.
+	prio = Priority Index.
+	target = Target Index if applicable.
+**/
+forward void BotPrio_OnPrioFound(int client, int prio, int target);
+
+/**
+	Called whenever a bot has their current priority cleared.
+
+	client = Client Index of the bot.
+	prio = Priority Index.
+	target = Target Index if applicable.
+**/
+forward void BotPrio_OnPrioCleared(int client, int prio, int target);
+
 public SharedPlugin __pl_Bot_Priorities = 
 {
 	name = "bot-priorities",

@@ -30,6 +30,9 @@ public Plugin myinfo =
 	url = "https://github.com/keiththecorgi"
 };
 
+ConVar convar_Timeout;
+ConVar convar_Delay;
+
 enum struct Priorities
 {
 	char name[MAX_NAME_LENGTH]; //Name of the Priority.
@@ -71,11 +74,15 @@ int g_TotalPriorities;
 
 GlobalForward g_Fw_ConfigLoaded;
 GlobalForward g_Fw_ConfigReloaded;
+GlobalForward g_Fw_OnPrioFound;
+GlobalForward g_Fw_OnPrioCleared;
 
 int g_CurrentPrio[MAXPLAYERS + 1] = {NO_PRIO, ...};
 int g_CurrentTarget[MAXPLAYERS + 1] = {NO_TARGET, ...};
 float g_MovementDelay[MAXPLAYERS + 1];
-float g_LastPrio[MAXPLAYERS + 1];
+float g_CurrentPrioTime[MAXPLAYERS + 1] = {NO_TIME, ...};
+float g_PrioTimeout[MAXPLAYERS + 1] = {NO_TIME, ...};
+float g_LastPrio[MAXPLAYERS + 1] = {NO_TIME, ...};
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
@@ -87,6 +94,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 
 	g_Fw_ConfigLoaded = new GlobalForward("BotPrio_ConfigLoaded", ET_Ignore);
 	g_Fw_ConfigReloaded = new GlobalForward("BotPrio_ConfigReloaded", ET_Ignore, Param_Cell);
+	g_Fw_OnPrioFound = new GlobalForward("BotPrio_OnPrioFound", ET_Ignore, Param_Cell, Param_Cell, Param_Cell);
+	g_Fw_OnPrioCleared = new GlobalForward("BotPrio_OnPrioCleared", ET_Ignore, Param_Cell, Param_Cell, Param_Cell);
 
 	return APLRes_Success;
 }
@@ -136,6 +145,8 @@ public int Native_ClearPrio(Handle plugin, int numParams)
 public void OnPluginStart()
 {
 	CreateConVar("sm_botpriorities_version", PLUGIN_VERSION, "The current version of this plugin.");
+	convar_Timeout = CreateConVar("sm_botpriorities_timeout", "15.0", "The maximum amount of time a priority can be active for before being timed out.", FCVAR_NOTIFY, true, 0.0);
+	convar_Delay = CreateConVar("sm_botpriorities_delay", "5.0", "The amount of time for a bot to wait for before searching for a new priority.", FCVAR_NOTIFY, true, 0.0);
 
 	RegAdminCmd("sm_reloadprios", Command_ReloadPrio, ADMFLAG_ROOT, "Reload all bot priorities from the config.");
 	RegAdminCmd("sm_prios", Command_Prios, ADMFLAG_ROOT, "List all available bot priorities and toggle them on or off.");
@@ -274,6 +285,25 @@ void ParsePriorities(int client = -1)
 		char release_event[64]; //The event called whenever the bot should have their current priority released.
 		float release_seconds; //The time in seconds once the priority is found for the bot to forget about the priority automatically.
 
+		/*
+		"Priority Name"
+		{
+			"status"	""
+			"team"	""
+			"entity"	""
+			"trigger_distance"	""
+			"required_distance"	""
+			"movement_delay"	""
+			"classid"	""
+			"slot"	""
+			"buttons"	""
+			"script"	""
+			"lookat"	""
+			"release_event"	""
+			"release_seconds"	""
+		}
+		*/
+
 		do
 		{
 			kv.GetSectionName(name, sizeof(name));
@@ -350,8 +380,15 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			return Plugin_Continue;
 		}
 
-		//The priority has lated too long so we should time it out.
-		if (g_LastPrio[client] != NO_TIME && g_LastPrio[client] <= time)
+		//The priority has lasted too long so we should time it out.
+		if (g_PrioTimeout[client] != NO_TIME && g_PrioTimeout[client] <= time)
+		{
+			ClearPrio(client);
+			return Plugin_Continue;
+		}
+
+		//The priority has been timed out manually by the plugin.
+		if ((time - g_CurrentPrioTime[client]) > convar_Timeout.FloatValue)
 		{
 			ClearPrio(client);
 			return Plugin_Continue;
@@ -413,6 +450,10 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 
 		return Plugin_Continue;
 	}
+
+	//The bot had a priority recently and we want to wait a bit before they're assigned a new one automatically.
+	if (g_LastPrio[client] != NO_TIME && (time - g_LastPrio[client]) > convar_Delay.FloatValue)
+		return Plugin_Continue;
 
 	float distance;
 	float entorigin[3];
@@ -496,10 +537,17 @@ bool SetPrio(int client, int prio, int target = NO_TARGET)
 	//All checks passed, give them this priority and assign the target.
 	g_CurrentPrio[client] = prio;
 	g_CurrentTarget[client] = target;
+	g_CurrentPrioTime[client] = GetGameTime();
 
 	//Sets a timeout for this priority based on seconds of it being received.
 	if (g_Priorities[prio].release_seconds != -1.0)
-		g_LastPrio[client] = GetGameTime() + g_Priorities[prio].release_seconds;
+		g_PrioTimeout[client] = g_CurrentPrioTime[client] + g_Priorities[prio].release_seconds;
+	
+	Call_StartForward(g_Fw_OnPrioFound);
+	Call_PushCell(client);
+	Call_PushCell(prio);
+	Call_PushCell(target);
+	Call_Finish();
 	
 	return true;
 }
@@ -510,10 +558,21 @@ bool ClearPrio(int client)
 	if (g_CurrentPrio[client] == NO_PRIO)
 		return false;
 	
+	int prev = g_CurrentPrio[client];
+	int prev2 = g_CurrentTarget[client];
+	
 	//Reset the data of the bot through cached variables.
 	g_CurrentPrio[client] = NO_PRIO;
 	g_CurrentTarget[client] = NO_TARGET;
-	g_LastPrio[client] = NO_TIME;
+	g_CurrentPrioTime[client] = NO_TIME;
+	g_PrioTimeout[client] = NO_TIME;
+	g_LastPrio[client] = GetGameTime();
+
+	Call_StartForward(g_Fw_OnPrioCleared);
+	Call_PushCell(client);
+	Call_PushCell(prev);
+	Call_PushCell(prev2);
+	Call_Finish();
 
 	return true;
 }
