@@ -18,10 +18,6 @@ List of priorities:
 
 #define MAX_PRIORITES 256
 
-#define NO_PRIO -1
-#define NO_TARGET -1
-#define NO_TIME -1.0
-
 #define TEAM_SURVIVORS 2
 #define TEAM_INFECTED 3
 
@@ -86,6 +82,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	RegPluginLibrary("bot-priorities");
 
 	CreateNative("BotPrio_GetPrio", Native_GetPrio);
+	CreateNative("BotPrio_SetPrio", Native_SetPrio);
+	CreateNative("BotPrio_ClearPrio", Native_ClearPrio);
 
 	g_Fw_ConfigLoaded = new GlobalForward("BotPrio_ConfigLoaded", ET_Ignore);
 	g_Fw_ConfigReloaded = new GlobalForward("BotPrio_ConfigReloaded", ET_Ignore, Param_Cell);
@@ -104,6 +102,35 @@ public int Native_GetPrio(Handle plugin, int numParams)
 		return ThrowNativeError(SP_ERROR_NATIVE, "Client index '%i' is not a bot.", client);
 	
 	return g_CurrentPrio[client];
+}
+
+public int Native_SetPrio(Handle plugin, int numParams)
+{
+	int client = GetNativeCell(1);
+
+	if (client < 1 || client > MaxClients || !IsClientInGame(client))
+		return ThrowNativeError(SP_ERROR_NATIVE, "Client index '%i' is invalid or not available.", client);
+	
+	if (!IsFakeClient(client))
+		return ThrowNativeError(SP_ERROR_NATIVE, "Client index '%i' is not a bot.", client);
+	
+	int prio = GetNativeCell(2);
+	int target = GetNativeCell(3);
+	
+	return SetPrio(client, prio, target);
+}
+
+public int Native_ClearPrio(Handle plugin, int numParams)
+{
+	int client = GetNativeCell(1);
+
+	if (client < 1 || client > MaxClients || !IsClientInGame(client))
+		return ThrowNativeError(SP_ERROR_NATIVE, "Client index '%i' is invalid or not available.", client);
+	
+	if (!IsFakeClient(client))
+		return ThrowNativeError(SP_ERROR_NATIVE, "Client index '%i' is not a bot.", client);
+	
+	return ClearPrio(client);
 }
 
 public void OnPluginStart()
@@ -433,13 +460,8 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			if (distance > 0.0 && GetVectorDistance(origin, entorigin) > distance)
 				continue;
 			
-			//All checks passed, give them this priority and assign the target.
-			g_CurrentPrio[client] = i;
-			g_CurrentTarget[client] = entity;
-
-			//Sets a timeout for this priority based on seconds of it being received.
-			if (g_Priorities[i].release_seconds != -1.0)
-				g_LastPrio[client] = time + g_Priorities[i].release_seconds;
+			//Sets the priority of the bot manually.
+			SetPrio(client, i, entity);
 		}
 	}
 
@@ -469,9 +491,29 @@ public void Event_Release(Event event, const char[] name, bool dontBroadcast)
 		ClearPrio(client);
 }
 
-void ClearPrio(int client)
+bool SetPrio(int client, int prio, int target = NO_TARGET)
 {
+	//All checks passed, give them this priority and assign the target.
+	g_CurrentPrio[client] = prio;
+	g_CurrentTarget[client] = target;
+
+	//Sets a timeout for this priority based on seconds of it being received.
+	if (g_Priorities[prio].release_seconds != -1.0)
+		g_LastPrio[client] = GetGameTime() + g_Priorities[prio].release_seconds;
+	
+	return true;
+}
+
+bool ClearPrio(int client)
+{
+	//Bot already doesn't have a prio, no need to reset them.
+	if (g_CurrentPrio[client] == NO_PRIO)
+		return false;
+	
+	//Reset the data of the bot through cached variables.
 	g_CurrentPrio[client] = NO_PRIO;
 	g_CurrentTarget[client] = NO_TARGET;
 	g_LastPrio[client] = NO_TIME;
+
+	return true;
 }

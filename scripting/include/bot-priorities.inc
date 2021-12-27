@@ -3,6 +3,10 @@
 #endif
 #define _Bot_Priorities_included
 
+#define NO_PRIO -1
+#define NO_TARGET -1
+#define NO_TIME -1.0
+
 /**
 	The current priority the bot has been assigned based on their current situation.
 
@@ -12,6 +16,28 @@
 	error: Invalid Client Index / Client Is Not A Bot
 **/
 native int BotPrio_GetPrio(int client);
+
+/**
+	Manually set the current priority for the bot and whether or not it has a target associated with it.
+
+	client = Index of the bot.
+	prio = Index of the priority.
+	target = Index of the target associated if this priority requires one.
+
+	return = True if successful, false otherwise.
+	error: Invalid Client Index / Client Is Not A Bot
+**/
+native int BotPrio_SetPrio(int client, int prio, int target = NO_TARGET);
+
+/**
+	Clears the current priority for the bot if it's assigned one currently.
+
+	client = Index of the bot.
+
+	return = True if one was found and cleared, false otherwise.
+	error: Invalid Client Index / Client Is Not A Bot
+**/
+native bool BotPrio_ClearPrio(int client);
 
 /**
 	Called whenever the priorities configuration file is loaded for the first time.
@@ -37,6 +63,8 @@ public SharedPlugin __pl_Bot_Priorities =
 #if !defined REQUIRE_PLUGIN
 public void __pl_Bot_Priorities_SetNTVOptional()
 {
-	
+	MarkNativeAsOptional("BotPrio_GetPrio");
+	MarkNativeAsOptional("BotPrio_SetPrio");
+	MarkNativeAsOptional("BotPrio_ClearPrio");
 }
 #endif
