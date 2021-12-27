@@ -14,7 +14,7 @@ List of priorities:
 #include <sdktools>
 #include <bot-priorities>
 
-#define PLUGIN_VERSION "1.0.2"
+#define PLUGIN_VERSION "1.0.3"
 
 #define MAX_PRIORITES 256
 
@@ -154,6 +154,7 @@ public void OnPluginStart()
 	HookEvent("ability_use", Event_Release);
 	HookEvent("ammo_pickup", Event_Release);
 	HookEvent("item_pickup", Event_Release);
+	HookEvent("player_death", Event_Release);
 	
 	ParsePriorities(-1);
 
@@ -491,8 +492,6 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 							continue;
 					}
 				}
-
-				continue;
 			}
 
 			GetEntPropVector(entity, Prop_Send, "m_vecOrigin", entorigin);
@@ -522,7 +521,12 @@ stock void ExecuteScript(int client, const char[] script, any ...)
 
 public void Event_Release(Event event, const char[] name, bool dontBroadcast)
 {
-	int client = GetClientOfUserId(event.GetInt("userid"));
+	int client;
+	if (StrEqual(name, "player_death", false))
+		client = GetClientOfUserId(event.GetInt("attacker"));
+	else
+		client = GetClientOfUserId(event.GetInt("userid"));
+	
 	int prio = g_CurrentPrio[client];
 
 	if (prio == NO_PRIO)
@@ -534,6 +538,8 @@ public void Event_Release(Event event, const char[] name, bool dontBroadcast)
 
 bool SetPrio(int client, int prio, int target = NO_TARGET)
 {
+	//PrintToChatAll("%N assigned prio: %i", client, prio);
+	
 	//All checks passed, give them this priority and assign the target.
 	g_CurrentPrio[client] = prio;
 	g_CurrentTarget[client] = target;
