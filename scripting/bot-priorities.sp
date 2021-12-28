@@ -14,7 +14,7 @@ List of priorities:
 #include <sdktools>
 #include <bot-priorities>
 
-#define PLUGIN_VERSION "1.0.3"
+#define PLUGIN_VERSION "1.0.4"
 
 #define MAX_PRIORITES 256
 
@@ -49,8 +49,10 @@ enum struct Priorities
 	bool lookat; //Toggle on/off to look at the target manually whenever the bot is within the required distance.
 	char release_event[64]; //The event called whenever the bot should have their current priority released.
 	float release_seconds; //The time in seconds once the priority is found for the bot to forget about the priority automatically.
+	bool ispinned; //Easy check whether or not the target is a survivor who has been pinned by an infected.
+	bool haspinned; //Easy check whether or not the target is an infected and has a survivor pinned.
 
-	void Add(const char[] name, bool status, int team, const char[] entity, float trigger_distance, float required_distance, float movement_delay, int classid, int slot, const char[] buttons, const char[] script, bool lookat, const char[] release_event, float release_seconds)
+	void Add(const char[] name, bool status, int team, const char[] entity, float trigger_distance, float required_distance, float movement_delay, int classid, int slot, const char[] buttons, const char[] script, bool lookat, const char[] release_event, float release_seconds, bool ispinned, bool haspinned)
 	{
 		strcopy(this.name, sizeof(Priorities::name), name);
 		this.status = status;
@@ -66,6 +68,8 @@ enum struct Priorities
 		this.lookat = lookat;
 		strcopy(this.release_event, sizeof(Priorities::release_event), release_event);
 		this.release_seconds = release_seconds;
+		this.ispinned = ispinned;
+		this.haspinned = haspinned;
 	}
 }
 
@@ -285,6 +289,8 @@ void ParsePriorities(int client = -1)
 		bool lookat; //Toggle on/off to look at the target manually whenever the bot is within the required distance.
 		char release_event[64]; //The event called whenever the bot should have their current priority released.
 		float release_seconds; //The time in seconds once the priority is found for the bot to forget about the priority automatically.
+		bool ispinned; //Easy check whether or not the target is a survivor who has been pinned by an infected.
+		bool haspinned; //Easy check whether or not the target is an infected and has a survivor pinned.
 
 		/*
 		"Priority Name"
@@ -302,6 +308,8 @@ void ParsePriorities(int client = -1)
 			"lookat"	""
 			"release_event"	""
 			"release_seconds"	""
+			"ispinned"	""
+			"haspinned"	""
 		}
 		*/
 
@@ -321,8 +329,10 @@ void ParsePriorities(int client = -1)
 			lookat = view_as<bool>(kv.GetNum("lookat", 0));
 			kv.GetString("release_event", release_event, sizeof(release_event), "");
 			release_seconds = kv.GetFloat("release_seconds", -1.0);
+			ispinned = view_as<bool>(kv.GetNum("ispinned", 0));
+			haspinned = view_as<bool>(kv.GetNum("haspinned", 0));
 
-			g_Priorities[g_TotalPriorities++].Add(name, status, team, entity, trigger_distance, required_distance, movement_delay, classid, slot, buttons, script, lookat, release_event, release_seconds);
+			g_Priorities[g_TotalPriorities++].Add(name, status, team, entity, trigger_distance, required_distance, movement_delay, classid, slot, buttons, script, lookat, release_event, release_seconds, ispinned, haspinned);
 		}
 		while (kv.GotoNextKey(false));
 	}
@@ -476,6 +486,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 		while ((entity = FindEntityByClassname(entity, g_Priorities[i].entity)) != -1)
 		{
 			//If the target is a player then we can check what their survivor ID or their infected ID is.
+			//Also check if they should be pinned currently or are pinning themselves.
 			if (StrEqual(g_Priorities[i].entity, "player", false))
 			{
 				switch (GetClientTeam(entity))
@@ -484,11 +495,17 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 					{
 						if (GetEntProp(entity, Prop_Send, "m_survivorCharacter") != g_Priorities[i].classid)
 							continue;
+						
+						if (g_Priorities[i].ispinned && GetInfectedAttacker(entity) < 1)
+							continue;
 					}
 
 					case TEAM_INFECTED:
 					{
 						if (GetEntProp(entity, Prop_Send, "m_zombieClass") != g_Priorities[i].classid)
+							continue;
+						
+						if (g_Priorities[i].haspinned && GetSurvivorVictim(entity) < 1)
 							continue;
 					}
 				}
@@ -581,4 +598,66 @@ bool ClearPrio(int client)
 	Call_Finish();
 
 	return true;
+}
+
+stock int GetInfectedAttacker(int client)
+{
+	int attacker;
+
+	/* Charger */
+	attacker = GetEntPropEnt(client, Prop_Send, "m_pummelAttacker");
+	if (attacker > 0)
+		return attacker;
+
+	attacker = GetEntPropEnt(client, Prop_Send, "m_carryAttacker");
+	if (attacker > 0)
+		return attacker;
+
+	/* Hunter */
+	attacker = GetEntPropEnt(client, Prop_Send, "m_pounceAttacker");
+	if (attacker > 0)
+		return attacker;
+
+	/* Smoker */
+	attacker = GetEntPropEnt(client, Prop_Send, "m_tongueOwner");
+	if (attacker > 0)
+		return attacker;
+
+	/* Jockey */
+	attacker = GetEntPropEnt(client, Prop_Send, "m_jockeyAttacker");
+	if (attacker > 0)
+		return attacker;
+
+	return -1;
+}
+
+stock int GetSurvivorVictim(int client)
+{
+    int victim;
+
+    /* Charger */
+    victim = GetEntPropEnt(client, Prop_Send, "m_pummelVictim");
+    if (victim > 0)
+        return victim;
+
+    victim = GetEntPropEnt(client, Prop_Send, "m_carryVictim");
+    if (victim > 0)
+        return victim;
+
+    /* Hunter */
+    victim = GetEntPropEnt(client, Prop_Send, "m_pounceVictim");
+    if (victim > 0)
+        return victim;
+
+    /* Smoker */
+    victim = GetEntPropEnt(client, Prop_Send, "m_tongueVictim");
+    if (victim > 0)
+        return victim;
+
+    /* Jockey */
+    victim = GetEntPropEnt(client, Prop_Send, "m_jockeyVictim");
+    if (victim > 0)
+        return victim;
+
+    return -1;
 }
