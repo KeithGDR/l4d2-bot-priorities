@@ -489,11 +489,14 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			//Also check if they should be pinned currently or are pinning themselves.
 			if (StrEqual(g_Priorities[i].entity, "player", false))
 			{
+				if (GetClientTeam(client) == GetClientTeam(entity))
+					continue;
+				
 				switch (GetClientTeam(entity))
 				{
 					case TEAM_SURVIVORS:
 					{
-						if (GetEntProp(entity, Prop_Send, "m_survivorCharacter") != g_Priorities[i].classid)
+						if (g_Priorities[i].classid != -1 && GetEntProp(entity, Prop_Send, "m_survivorCharacter") != g_Priorities[i].classid)
 							continue;
 						
 						if (g_Priorities[i].ispinned && GetInfectedAttacker(entity) < 1)
@@ -502,7 +505,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 
 					case TEAM_INFECTED:
 					{
-						if (GetEntProp(entity, Prop_Send, "m_zombieClass") != g_Priorities[i].classid)
+						if (g_Priorities[i].classid != -1 && GetEntProp(entity, Prop_Send, "m_zombieClass") != g_Priorities[i].classid)
 							continue;
 						
 						if (g_Priorities[i].haspinned && GetSurvivorVictim(entity) < 1)
