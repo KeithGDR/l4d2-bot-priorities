@@ -45,6 +45,7 @@ enum struct Priorities
 	int classid; //The class ID used in conjunction with the entity to determine which survivor or infected to look for. Entity must be 'player' for this to be used.
 	int slot; //The slot to switch the bot to when the required distance is met.
 	char buttons[256]; //The buttons to press whenever the bot is within the required distance.
+	float button_delay; //The delay at which to press the buttons over and over again.
 	char script[512]; //A VScript to execute whenever the bot is within the required distance.
 	bool lookat; //Toggle on/off to look at the target manually whenever the bot is within the required distance.
 	char release_event[64]; //The event called whenever the bot should have their current priority released.
@@ -52,7 +53,7 @@ enum struct Priorities
 	bool ispinned; //Easy check whether or not the target is a survivor who has been pinned by an infected.
 	bool haspinned; //Easy check whether or not the target is an infected and has a survivor pinned.
 
-	void Add(const char[] name, bool status, int team, const char[] entity, float trigger_distance, float required_distance, float movement_delay, int classid, int slot, const char[] buttons, const char[] script, bool lookat, const char[] release_event, float release_seconds, bool ispinned, bool haspinned)
+	void Add(const char[] name, bool status, int team, const char[] entity, float trigger_distance, float required_distance, float movement_delay, int classid, int slot, const char[] buttons, float button_delay, const char[] script, bool lookat, const char[] release_event, float release_seconds, bool ispinned, bool haspinned)
 	{
 		strcopy(this.name, sizeof(Priorities::name), name);
 		this.status = status;
@@ -64,6 +65,7 @@ enum struct Priorities
 		this.classid = classid;
 		this.slot = slot;
 		strcopy(this.buttons, sizeof(Priorities::buttons), buttons);
+		this.button_delay = button_delay;
 		strcopy(this.script, sizeof(Priorities::script), script);
 		this.lookat = lookat;
 		strcopy(this.release_event, sizeof(Priorities::release_event), release_event);
@@ -87,6 +89,7 @@ float g_MovementDelay[MAXPLAYERS + 1];
 float g_CurrentPrioTime[MAXPLAYERS + 1] = {NO_TIME, ...};
 float g_PrioTimeout[MAXPLAYERS + 1] = {NO_TIME, ...};
 float g_LastPrio[MAXPLAYERS + 1] = {NO_TIME, ...};
+float g_DelayFire[MAXPLAYERS + 1] = {NO_TIME, ...};
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
@@ -285,6 +288,7 @@ void ParsePriorities(int client = -1)
 		int classid; //The class ID used in conjunction with the entity to determine which survivor or infected to look for.
 		int slot; //The slot to switch the bot to when the required distance is met.
 		char buttons[256]; //The buttons to press whenever the bot is within the required distance.
+		float button_delay; //The delay at which to press the buttons over and over again.
 		char script[512]; //A VScript to execute whenever the bot is within the required distance.
 		bool lookat; //Toggle on/off to look at the target manually whenever the bot is within the required distance.
 		char release_event[64]; //The event called whenever the bot should have their current priority released.
@@ -304,6 +308,7 @@ void ParsePriorities(int client = -1)
 			"classid"	""
 			"slot"	""
 			"buttons"	""
+			"button_delay"	""
 			"script"	""
 			"lookat"	""
 			"release_event"	""
@@ -325,6 +330,7 @@ void ParsePriorities(int client = -1)
 			classid = kv.GetNum("classid", -1);
 			slot = kv.GetNum("slot", -1);
 			kv.GetString("buttons", buttons, sizeof(buttons), "");
+			button_delay = kv.GetFloat("button_delay", -1.0);
 			kv.GetString("script", script, sizeof(script), "");
 			lookat = view_as<bool>(kv.GetNum("lookat", 0));
 			kv.GetString("release_event", release_event, sizeof(release_event), "");
@@ -332,7 +338,7 @@ void ParsePriorities(int client = -1)
 			ispinned = view_as<bool>(kv.GetNum("ispinned", 0));
 			haspinned = view_as<bool>(kv.GetNum("haspinned", 0));
 
-			g_Priorities[g_TotalPriorities++].Add(name, status, team, entity, trigger_distance, required_distance, movement_delay, classid, slot, buttons, script, lookat, release_event, release_seconds, ispinned, haspinned);
+			g_Priorities[g_TotalPriorities++].Add(name, status, team, entity, trigger_distance, required_distance, movement_delay, classid, slot, buttons, button_delay, script, lookat, release_event, release_seconds, ispinned, haspinned);
 		}
 		while (kv.GotoNextKey(false));
 	}
@@ -454,14 +460,19 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 
 		if (strlen(g_Priorities[prio].buttons) > 0)
 		{
-			if (StrContains(g_Priorities[prio].buttons, "IN_ATTACK", false) != -1)
-				buttons |= IN_ATTACK;
-			
-			if (StrContains(g_Priorities[prio].buttons, "IN_ATTACK2", false) != -1)
-				buttons |= IN_ATTACK2;
-			
-			if (StrContains(g_Priorities[prio].buttons, "IN_USE", false) != -1)
-				buttons |= IN_USE;
+			if (g_Priorities[prio].button_delay == -1 || g_Priorities[prio].button_delay != -1 && g_DelayFire[client] <= time)
+			{
+				g_DelayFire[client] = time + g_Priorities[prio].button_delay;
+
+				if (StrContains(g_Priorities[prio].buttons, "IN_ATTACK", false) != -1)
+					buttons |= IN_ATTACK;
+				
+				if (StrContains(g_Priorities[prio].buttons, "IN_ATTACK2", false) != -1)
+					buttons |= IN_ATTACK2;
+				
+				if (StrContains(g_Priorities[prio].buttons, "IN_USE", false) != -1)
+					buttons |= IN_USE;
+			}
 		}
 
 		if (strlen(g_Priorities[prio].script) > 0)
@@ -607,6 +618,7 @@ bool ClearPrio(int client)
 	g_CurrentPrioTime[client] = NO_TIME;
 	g_PrioTimeout[client] = NO_TIME;
 	g_LastPrio[client] = GetGameTime();
+	g_DelayFire[client] = NO_TIME;
 
 	Call_StartForward(g_Fw_OnPrioCleared);
 	Call_PushCell(client);
