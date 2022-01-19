@@ -369,6 +369,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 	float origin[3];
 	GetClientAbsOrigin(client, origin);
 
+	int team = GetClientTeam(client);
 	float time = GetGameTime();
 	
 	//If this bot has a priority already, don't assign a new one until they've finished this priority.
@@ -379,6 +380,13 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 
 		//Priority was turned off while the bot had the priority currently.
 		if (!g_Priorities[prio].status)
+		{
+			ClearPrio(client);
+			return Plugin_Continue;
+		}
+
+		//The player's team has changed or the prio's team has changed, clear prio if the new values don't match up.
+		if (g_Priorities[prio].team != -1 && g_Priorities[prio].team != team)
 		{
 			ClearPrio(client);
 			return Plugin_Continue;
@@ -480,6 +488,9 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 		if (strlen(g_Priorities[i].entity) == 0)
 			continue;
 		
+		if (g_Priorities[i].team != -1 && g_Priorities[i].team != team)
+			continue;
+		
 		distance = g_Priorities[i].trigger_distance;
 		
 		int entity = -1;
@@ -489,7 +500,10 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			//Also check if they should be pinned currently or are pinning themselves.
 			if (StrEqual(g_Priorities[i].entity, "player", false))
 			{
-				if (GetClientTeam(client) == GetClientTeam(entity))
+				if (client == entity)
+					continue;
+				
+				if (team == GetClientTeam(entity))
 					continue;
 				
 				switch (GetClientTeam(entity))
