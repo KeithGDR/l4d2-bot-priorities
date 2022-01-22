@@ -14,7 +14,7 @@ List of priorities:
 #include <sdktools>
 #include <bot-priorities>
 
-#define PLUGIN_VERSION "1.0.4"
+#define PLUGIN_VERSION "1.0.5"
 
 #define MAX_PRIORITES 256
 
@@ -44,6 +44,7 @@ enum struct Priorities
 	float movement_delay; //The delay at which movement commands are sent to the bot.
 	int classid; //The class ID used in conjunction with the entity to determine which survivor or infected to look for. Entity must be 'player' for this to be used.
 	int slot; //The slot to switch the bot to when the required distance is met.
+	char slot_entity[64]; //The required entity to have in that slot as a weapon or item.
 	char buttons[256]; //The buttons to press whenever the bot is within the required distance.
 	float button_delay; //The delay at which to press the buttons over and over again.
 	char script[512]; //A VScript to execute whenever the bot is within the required distance.
@@ -53,7 +54,7 @@ enum struct Priorities
 	bool ispinned; //Easy check whether or not the target is a survivor who has been pinned by an infected.
 	bool haspinned; //Easy check whether or not the target is an infected and has a survivor pinned.
 
-	void Add(const char[] name, bool status, int team, const char[] entity, float trigger_distance, float required_distance, float movement_delay, int classid, int slot, const char[] buttons, float button_delay, const char[] script, bool lookat, const char[] release_event, float release_seconds, bool ispinned, bool haspinned)
+	void Add(const char[] name, bool status, int team, const char[] entity, float trigger_distance, float required_distance, float movement_delay, int classid, int slot, const char[] slot_entity, const char[] buttons, float button_delay, const char[] script, bool lookat, const char[] release_event, float release_seconds, bool ispinned, bool haspinned)
 	{
 		strcopy(this.name, sizeof(Priorities::name), name);
 		this.status = status;
@@ -64,6 +65,7 @@ enum struct Priorities
 		this.movement_delay = movement_delay;
 		this.classid = classid;
 		this.slot = slot;
+		strcopy(this.slot_entity, sizeof(Priorities::slot_entity), slot_entity);
 		strcopy(this.buttons, sizeof(Priorities::buttons), buttons);
 		this.button_delay = button_delay;
 		strcopy(this.script, sizeof(Priorities::script), script);
@@ -287,6 +289,7 @@ void ParsePriorities(int client = -1)
 		float movement_delay; //The delay at which movement commands are sent to the bot.
 		int classid; //The class ID used in conjunction with the entity to determine which survivor or infected to look for.
 		int slot; //The slot to switch the bot to when the required distance is met.
+		char slot_entity[64]; //The required entity to have in that slot as a weapon or item.
 		char buttons[256]; //The buttons to press whenever the bot is within the required distance.
 		float button_delay; //The delay at which to press the buttons over and over again.
 		char script[512]; //A VScript to execute whenever the bot is within the required distance.
@@ -307,6 +310,7 @@ void ParsePriorities(int client = -1)
 			"movement_delay"	""
 			"classid"	""
 			"slot"	""
+			"slot_entity"	""
 			"buttons"	""
 			"button_delay"	""
 			"script"	""
@@ -329,6 +333,7 @@ void ParsePriorities(int client = -1)
 			movement_delay = kv.GetFloat("movement_delay", 2.0);
 			classid = kv.GetNum("classid", -1);
 			slot = kv.GetNum("slot", -1);
+			kv.GetString("slot_entity", slot_entity, sizeof(slot_entity), "");
 			kv.GetString("buttons", buttons, sizeof(buttons), "");
 			button_delay = kv.GetFloat("button_delay", -1.0);
 			kv.GetString("script", script, sizeof(script), "");
@@ -338,7 +343,7 @@ void ParsePriorities(int client = -1)
 			ispinned = view_as<bool>(kv.GetNum("ispinned", 0));
 			haspinned = view_as<bool>(kv.GetNum("haspinned", 0));
 
-			g_Priorities[g_TotalPriorities++].Add(name, status, team, entity, trigger_distance, required_distance, movement_delay, classid, slot, buttons, button_delay, script, lookat, release_event, release_seconds, ispinned, haspinned);
+			g_Priorities[g_TotalPriorities++].Add(name, status, team, entity, trigger_distance, required_distance, movement_delay, classid, slot, slot_entity, buttons, button_delay, script, lookat, release_event, release_seconds, ispinned, haspinned);
 		}
 		while (kv.GotoNextKey(false));
 	}
@@ -441,6 +446,13 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			char class[32];
 			GetEdictClassname(slotweapon, class, sizeof(class));
 
+			//They switched items/weapons in this slot during the priority so clear the priority now.
+			if (strlen(g_Priorities[prio].slot_entity) > 0 && !StrEqual(class, g_Priorities[prio].slot_entity, false))
+			{
+				ClearPrio(client);
+				return Plugin_Continue;
+			}
+
 			FakeClientCommand(client, "use %s", class);
 		}
 
@@ -499,8 +511,24 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 		if (strlen(g_Priorities[i].entity) == 0)
 			continue;
 		
+		//If a team is specified, must be on that team to be assigned this priority.
 		if (g_Priorities[i].team != -1 && g_Priorities[i].team != team)
 			continue;
+		
+		//Lets make sure the bot has the proper weapon in the proper slot if specified otherwise don't assign them this priority.
+		if (g_Priorities[i].slot != -1 && strlen(g_Priorities[i].slot_entity) > 0)
+		{
+			int slotweapon = GetPlayerWeaponSlot(client, g_Priorities[i].slot);
+
+			if (IsValidEntity(slotweapon))
+			{
+				char class[64];
+				GetEdictClassname(slotweapon, class, sizeof(class));
+
+				if (!StrEqual(class, g_Priorities[i].slot_entity, false))
+					continue;
+			}
+		}
 		
 		distance = g_Priorities[i].trigger_distance;
 		
