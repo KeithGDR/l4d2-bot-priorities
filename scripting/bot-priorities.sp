@@ -475,7 +475,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 	}
 
 	//The bot had a priority recently and we want to wait a bit before they're assigned a new one automatically.
-	if (g_LastPrio[client] != NO_TIME && (time - g_LastPrio[client]) > convar_Delay.FloatValue)
+	if (g_LastPrio[client] != NO_TIME && (time - g_LastPrio[client]) <= convar_Delay.FloatValue)
 		return Plugin_Continue;
 
 	float distance;
