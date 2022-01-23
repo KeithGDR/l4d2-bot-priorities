@@ -166,25 +166,6 @@ public void OnPluginStart()
 	HookEvent("player_death", Event_Release);
 	
 	ParsePriorities(-1);
-
-	RegConsoleCmd("sm_c", Command_C);
-}
-
-public Action Command_C(int client, int args)
-{
-	int entity = GetClientAimTarget(client, false);
-
-	if (entity < 1)
-	{
-		PrintToChat(client, "not found");
-		return Plugin_Handled;
-	}
-
-	char class[32];
-	GetEntityClassname(entity, class, sizeof(class));
-	PrintToChat(client, class);
-
-	return Plugin_Handled;
 }
 
 public Action Command_ReloadPrio(int client, int args)
