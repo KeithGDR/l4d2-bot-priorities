@@ -40,6 +40,17 @@ native int BotPrio_SetPrio(int client, int prio, int target = NO_TARGET);
 native bool BotPrio_ClearPrio(int client);
 
 /**
+	Retrieves the name of a certain priority based on index.
+
+	prio = Index of the priority.
+	buffer = String buffer to store the data in.
+	size = Size of the string buffer.
+
+	return = True if a valid priority was found and a name was provided, false otherwise.
+**/
+native bool BotPrio_GetName(int prio, char[] buffer, int size);
+
+/**
 	Called whenever the priorities configuration file is loaded for the first time.
 **/
 forward void BotPrio_ConfigLoaded();
@@ -84,5 +95,6 @@ public void __pl_Bot_Priorities_SetNTVOptional()
 	MarkNativeAsOptional("BotPrio_GetPrio");
 	MarkNativeAsOptional("BotPrio_SetPrio");
 	MarkNativeAsOptional("BotPrio_ClearPrio");
+	MarkNativeAsOptional("BotPrio_GetName");
 }
 #endif
